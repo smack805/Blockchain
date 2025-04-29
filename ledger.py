@@ -1,108 +1,102 @@
 import streamlit as st
+import hashlib
 import datetime
+import json
 
-st.set_page_config(page_title="Mobile Recharge Ledger", layout="centered")
+# Define a Block
+class Block:
+    def __init__(self, index, data, timestamp, previous_hash):
+        self.index = index
+        self.data = data
+        self.timestamp = timestamp
+        self.previous_hash = previous_hash
+        self.hash = self.calculate_hash()
 
-# Initialize session state
-if "ledger" not in st.session_state:
-    st.session_state.ledger = {}
+    def calculate_hash(self):
+        block_string = json.dumps({
+            'index': self.index,
+            'data': self.data,
+            'timestamp': str(self.timestamp),
+            'previous_hash': self.previous_hash
+        }, sort_keys=True).encode()
+        return hashlib.sha256(block_string).hexdigest()
 
-def add_user(mobile_number, initial_balance):
-    ledger = st.session_state.ledger
-    if mobile_number not in ledger:
-        ledger[mobile_number] = {
-            "balance": initial_balance,
-            "history": []
-        }
-        st.success(f"User {mobile_number} added with balance ₹{initial_balance}")
-    else:
-        st.warning("User already exists!")
+# Define the Blockchain
+class ReportCardBlockchain:
+    def __init__(self):
+        self.chain = [self.create_genesis_block()]
 
-def recharge(mobile_number, amount):
-    ledger = st.session_state.ledger
-    if mobile_number in ledger:
-        ledger[mobile_number]["balance"] += amount
-        ledger[mobile_number]["history"].append({
-            "type": "Recharge",
-            "amount": amount,
-            "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def create_genesis_block(self):
+        return Block(0, {"message": "Genesis Block"}, datetime.datetime.now(), "0")
+
+    def get_latest_block(self):
+        return self.chain[-1]
+
+    def add_block(self, data):
+        previous_block = self.get_latest_block()
+        new_block = Block(
+            index=len(self.chain),
+            data=data,
+            timestamp=datetime.datetime.now(),
+            previous_hash=previous_block.hash
+        )
+        self.chain.append(new_block)
+
+    def is_chain_valid(self):
+        for i in range(1, len(self.chain)):
+            current = self.chain[i]
+            previous = self.chain[i - 1]
+
+            if current.hash != current.calculate_hash():
+                return False
+            if current.previous_hash != previous.hash:
+                return False
+        return True
+
+    def display_chain(self):
+        for block in self.chain:
+            st.write(f"### 🧱 Block {block.index}")
+            st.write(f"**Timestamp:** {block.timestamp}")
+            st.write(f"**Student Data:** {block.data}")
+            st.write(f"**Hash:** `{block.hash}`")
+            st.write(f"**Previous Hash:** `{block.previous_hash}`")
+            st.markdown("---")
+
+
+# Streamlit Interface
+st.set_page_config(page_title="📚 School Report Card Blockchain", layout="wide")
+st.title("📚 School Report Card Blockchain")
+
+# Initialize Blockchain (store in session state to persist across reruns)
+if "report_chain" not in st.session_state:
+    st.session_state.report_chain = ReportCardBlockchain()
+
+with st.form("add_report_card"):
+    st.subheader("➕ Add New Report Card")
+    student_name = st.text_input("Student Name")
+    math_grade = st.selectbox("Math Grade", ["A", "B", "C", "D", "F"])
+    science_grade = st.selectbox("Science Grade", ["A", "B", "C", "D", "F"])
+    english_grade = st.selectbox("English Grade", ["A", "B", "C", "D", "F"])
+    submitted = st.form_submit_button("Add to Blockchain")
+
+    if submitted and student_name:
+        st.session_state.report_chain.add_block({
+            "student_name": student_name,
+            "grades": {
+                "Math": math_grade,
+                "Science": science_grade,
+                "English": english_grade
+            }
         })
-        st.success(f"Recharged ₹{amount} to {mobile_number}. New balance: ₹{ledger[mobile_number]['balance']}")
-    else:
-        st.error("Mobile number not found!")
+        st.success(f"✅ Report card for {student_name} added to blockchain!")
 
-def deduct_balance(mobile_number, amount, reason):
-    ledger = st.session_state.ledger
-    if mobile_number in ledger:
-        if ledger[mobile_number]["balance"] >= amount:
-            ledger[mobile_number]["balance"] -= amount
-            ledger[mobile_number]["history"].append({
-                "type": "Deduction",
-                "amount": amount,
-                "reason": reason,
-                "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
-            st.success(f"Deducted ₹{amount} for {reason}. New balance: ₹{ledger[mobile_number]['balance']}")
-        else:
-            st.warning("Insufficient balance!")
-    else:
-        st.error("Mobile number not found!")
+# Display Blockchain
+st.subheader("📜 Blockchain Ledger")
+st.session_state.report_chain.display_chain()
 
-def show_ledger(mobile_number):
-    ledger = st.session_state.ledger
-    if mobile_number in ledger:
-        st.subheader(f"Ledger for {mobile_number}")
-        st.write(f"**Current Balance:** ₹{ledger[mobile_number]['balance']}")
-        st.markdown("---")
-        for entry in reversed(ledger[mobile_number]["history"]):
-            if entry["type"] == "Recharge":
-                st.write(f"🟢 {entry['date']} | Recharge | +₹{entry['amount']}")
-            else:
-                st.write(f"🔴 {entry['date']} | Deduction | -₹{entry['amount']} | Reason: {entry['reason']}")
-    else:
-        st.error("Mobile number not found!")
-
-# Streamlit UI
-st.title("📱 Mobile Recharge Ledger")
-
-tab1, tab2, tab3, tab4 = st.tabs(["Add User", "Recharge", "Deduct Balance", "View Ledger"])
-
-with tab1:
-    st.header("➕ Add New User")
-    mobile = st.text_input("Enter Mobile Number", key="add_mobile")
-    initial_balance = st.number_input("Initial Balance (₹)", min_value=0, step=1, key="init_bal")
-    if st.button("Add User"):
-        if mobile.strip():
-            add_user(mobile.strip(), initial_balance)
-        else:
-            st.warning("Enter a valid mobile number.")
-
-with tab2:
-    st.header("🔋 Recharge")
-    mobile = st.text_input("Enter Mobile Number", key="recharge_mobile")
-    amount = st.number_input("Recharge Amount (₹)", min_value=1, step=1, key="recharge_amt")
-    if st.button("Recharge"):
-        if mobile.strip():
-            recharge(mobile.strip(), amount)
-        else:
-            st.warning("Enter a valid mobile number.")
-
-with tab3:
-    st.header("💸 Deduct Balance")
-    mobile = st.text_input("Enter Mobile Number", key="deduct_mobile")
-    amount = st.number_input("Deduction Amount (₹)", min_value=1, step=1, key="deduct_amt")
-    reason = st.text_input("Reason", key="deduct_reason")
-    if st.button("Deduct"):
-        if mobile.strip():
-            deduct_balance(mobile.strip(), amount, reason if reason else "Usage")
-        else:
-            st.warning("Enter a valid mobile number.")
-
-with tab4:
-    st.header("📄 View Ledger")
-    mobile = st.text_input("Enter Mobile Number", key="ledger_mobile")
-    if st.button("Show Ledger"):
-        if mobile.strip():
-            show_ledger(mobile.strip())
-        else:
-            st.warning("Enter a valid mobile number.")
+# Validate Chain
+st.subheader("🔍 Blockchain Validity Check")
+is_valid = st.session_state.report_chain.is_chain_valid()
+st.success("✅ Blockchain is valid.") if is_valid else st.error("❌ Blockchain has been tampered!")
+ 
+         
